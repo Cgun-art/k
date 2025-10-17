@@ -408,3 +408,74 @@ int main(){
     glfwTerminate();
     return 0;
 }
+// main.cpp
+// TerraVoxel: voxel terrain without <iostream>
+
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/noise.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
+#include <vector>
+#include <cstdlib>
+#include <ctime>
+#include <thread>
+#include <chrono>
+
+// Window dimensions
+const unsigned int WIN_W = 1280;
+const unsigned int WIN_H = 720;
+
+// Size of the giant cube in world units
+const float WORLD_SIZE = 7880.0f;
+
+// Number of voxels per side (adjust for performance)
+const int RESOLUTION = 200;
+
+// Noise parameters
+const float NOISE_SCALE = 0.0015f;
+const float NOISE_AMPLITUDE = 200.0f;
+const float BASE_HEIGHT = 50.0f;
+
+// Color thresholds
+const float GRASS_H = 80.0f;
+const float ROCK_H  = 160.0f;
+
+// Simple AABB for collisions
+struct AABB {
+    glm::vec3 min, max;
+};
+std::vector<AABB> collisionBoxes;
+
+// Mesh data
+std::vector<float> vertices;    // x,y,z, nx,ny,nz, r,g,b
+std::vector<unsigned int> indices;
+
+// Cube face definitions
+static const int FACE_IDX[6][4] = {
+    {0,1,2,3}, {4,5,6,7}, {1,5,6,2},
+    {0,4,7,3}, {3,2,6,7}, {0,1,5,4}
+};
+static const glm::vec3 FACE_NORMALS[6] = {
+    { 0, 0,  1}, { 0, 0, -1},
+    { 1, 0,  0}, {-1, 0,  0},
+    { 0, 1,  0}, { 0,-1,  0}
+};
+static const glm::vec3 CUBE_VERTS[8] = {
+    {-0.5f,-0.5f,-0.5f},{ 0.5f,-0.5f,-0.5f},
+    { 0.5f, 0.5f,-0.5f},{-0.5f, 0.5f,-0.5f},
+    {-0.5f,-0.5f, 0.5f},{ 0.5f,-0.5f, 0.5f},
+    { 0.5f, 0.5f, 0.5f},{-0.5f, 0.5f, 0.5f}
+};
+
+// Add one colored cube at 'center', size 's'
+void addCube(const glm::vec3& center, float s, const glm::vec3& color) {
+    glm::vec3 half = glm::vec3(s * 0.5f);
+    unsigned int baseIndex = vertices.size() / 9;
+    // Build vertices per face
+    for (int f = 0; f < 6; ++f) {
+        glm::vec3 normal = FACE_NORMALS[f];
+        int i0 = FACE_IDX[f][0], i1 = FACE_IDX[f][1],
+            i2 = FACE_IDX[f][2], i3 = FACE_IDX[f][3];
+        glm::vec3
