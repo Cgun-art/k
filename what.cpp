@@ -479,3 +479,206 @@ void addCube(const glm::vec3& center, float s, const glm::vec3& color) {
         int i0 = FACE_IDX[f][0], i1 = FACE_IDX[f][1],
             i2 = FACE_IDX[f][2], i3 = FACE_IDX[f][3];
         glm::vec3
+// continuation of main.cpp
+
+// Push one cube into the global mesh and collision list
+void addCube(const glm::vec3& center, float s, const glm::vec3& color) {
+    glm::vec3 half = glm::vec3(s * 0.5f);
+    unsigned int startIndex = vertices.size() / 9;
+
+    // For each of the 6 faces
+    for (int f = 0; f < 6; ++f) {
+        glm::vec3 normal  = FACE_NORMALS[f];
+        int    i0 = FACE_IDX[f][0],
+               i1 = FACE_IDX[f][1],
+               i2 = FACE_IDX[f][2],
+               i3 = FACE_IDX[f][3];
+
+        // Push 4 verts: position, normal, color
+        glm::vec3 p0 = center + half * CUBE_VERTS[i0];
+        glm::vec3 p1 = center + half * CUBE_VERTS[i1];
+        glm::vec3 p2 = center + half * CUBE_VERTS[i2];
+        glm::vec3 p3 = center + half * CUBE_VERTS[i3];
+        for (auto& p : {p0, p1, p2, p3}) {
+            vertices.push_back(p.x);
+            vertices.push_back(p.y);
+            vertices.push_back(p.z);
+            vertices.push_back(normal.x);
+            vertices.push_back(normal.y);
+            vertices.push_back(normal.z);
+            vertices.push_back(color.r);
+            vertices.push_back(color.g);
+            vertices.push_back(color.b);
+        }
+
+        // Two triangles per face
+        indices.push_back(startIndex + 0);
+        indices.push_back(startIndex + 1);
+        indices.push_back(startIndex + 2);
+        indices.push_back(startIndex + 0);
+        indices.push_back(startIndex + 2);
+        indices.push_back(startIndex + 3);
+
+        startIndex += 4;
+    }
+
+    // Add collision AABB
+    AABB box;
+    box.min = center - half;
+    box.max = center + half;
+    collisionBoxes.push_back(box);
+}
+
+// Compile a single shader
+GLuint compileShader(GLenum type, const char* src) {
+    GLuint sh = glCreateShader(type);
+    glShaderSource(sh, 1, &src, nullptr);
+    glCompileShader(sh);
+    GLint ok = 0;
+    glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
+    if (!ok) std::exit(EXIT_FAILURE);
+    return sh;
+}
+
+// Link vertex and fragment into a program
+GLuint makeProgram(const char* vsSrc, const char* fsSrc) {
+    GLuint vs = compileShader(GL_VERTEX_SHADER,   vsSrc);
+    GLuint fs = compileShader(GL_FRAGMENT_SHADER, fsSrc);
+    GLuint prog = glCreateProgram();
+    glAttachShader(prog, vs);
+    glAttachShader(prog, fs);
+    glLinkProgram(prog);
+    GLint ok = 0;
+    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+    if (!ok) std::exit(EXIT_FAILURE);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    return prog;
+}
+
+// Simple GLSL shaders
+const char* vertexShaderSrc = R"GLSL(
+#version 330 core
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aNormal;
+layout(location=2) in vec3 aColor;
+uniform mat4 uMVP;
+out vec3 vColor;
+void main() {
+    vColor = aColor;
+    gl_Position = uMVP * vec4(aPos, 1.0);
+}
+)GLSL";
+
+const char* fragmentShaderSrc = R"GLSL(
+#version 330 core
+in vec3 vColor;
+out vec4 FragColor;
+void main() {
+    FragColor = vec4(vColor, 1.0);
+}
+)GLSL";
+
+int main() {
+    // Initialize GLFW
+    if (!glfwInit()) return EXIT_FAILURE;
+    // Request OpenGL 3.3 core
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    GLFWwindow* win = glfwCreateWindow(WIN_W, WIN_H, "TerraVoxel", nullptr, nullptr);
+    if (!win) { glfwTerminate(); return EXIT_FAILURE; }
+    glfwMakeContextCurrent(win);
+
+    // Load GL functions
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) std::exit(EXIT_FAILURE);
+
+    // Lock FPS: use swap interval 1 or 2 depending on refresh rate
+    const GLFWvidmode* mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
+    int interval = (mode->refreshRate >= 60 ? 1 : 2);
+    glfwSwapInterval(interval);
+
+    glEnable(GL_DEPTH_TEST);
+
+    // Generate terrain
+    float step = WORLD_SIZE / RESOLUTION;
+    float halfWorld = WORLD_SIZE * 0.5f;
+    srand((unsigned)time(nullptr));
+
+    for (int x = 0; x < RESOLUTION; ++x) {
+        for (int z = 0; z < RESOLUTION; ++z) {
+            float wx = -halfWorld + x * step + step * 0.5f;
+            float wz = -halfWorld + z * step + step * 0.5f;
+            float n  = glm::perlin(glm::vec2(wx, wz) * NOISE_SCALE);
+            float h  = BASE_HEIGHT + n * NOISE_AMPLITUDE;
+            glm::vec3 col;
+            if (h < GRASS_H)           col = glm::vec3(0.1f, 0.8f, 0.1f);
+            else if (h < ROCK_H)       col = glm::vec3(0.5f, 0.4f, 0.3f);
+            else                       col = glm::vec3(0.6f, 0.6f, 0.6f);
+            // center y is half the cube height
+            glm::vec3 center(wx, h * 0.5f, wz);
+            addCube(center, step, col);
+        }
+    }
+
+    // Upload mesh to GPU
+    GLuint vao, vbo, ebo;
+    glGenVertexArrays(1, &vao);
+    glGenBuffers(1, &vbo);
+    glGenBuffers(1, &ebo);
+    glBindVertexArray(vao);
+
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER,
+                 vertices.size() * sizeof(float),
+                 vertices.data(),
+                 GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                 indices.size() * sizeof(unsigned int),
+                 indices.data(),
+                 GL_STATIC_DRAW);
+
+    // layout: 0=pos,1=normal,2=color
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float),
+                          (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float),
+                          (void*)(6 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+
+    GLuint shaderProg = makeProgram(vertexShaderSrc, fragmentShaderSrc);
+    glUseProgram(shaderProg);
+
+    // Uniform location
+    GLint uMVPLoc = glGetUniformLocation(shaderProg, "uMVP");
+
+    // Main render loop
+    while (!glfwWindowShouldClose(win)) {
+        glClearColor(0.53f, 0.81f, 0.92f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        // Camera matrices
+        float ratio = float(WIN_W) / float(WIN_H);
+        glm::mat4 proj = glm::perspective(glm::radians(45.0f), ratio, 0.1f, 20000.0f);
+        glm::mat4 view = glm::lookAt(glm::vec3(0, 500, 1500),
+                                     glm::vec3(0,  0,    0),
+                                     glm::vec3(0,  1,    0));
+        glm::mat4 model = glm::mat4(1.0f);
+        glm::mat4 mvp   = proj * view * model;
+        glUniformMatrix4fv(uMVPLoc, 1, GL_FALSE, &mvp[0][0]);
+
+        glBindVertexArray(vao);
+        glDrawElements(GL_TRIANGLES, (GLsizei)indices.size(), GL_UNSIGNED_INT, 0);
+
+        glfwSwapBuffers(win);
+        glfwPollEvents();
+    }
+
+    glfwTerminate();
+    return EXIT_SUCCESS;
+}
+```[43dcd9a7-70db-4a1f-b0ae-981daa162054](https://github.com/menandro/opensor/tree/959353155150cb15e37e93105d1e5c5166745f0a/opensor_viewer%2FCgObject.cpp?citationMarker=43dcd9a7-70db-4a1f-b0ae-981daa162054&citationId=1&citationId=2&citationId=3 "github.com")
