@@ -1,0 +1,3 @@
+JMP 5/99
+MOV 5
+if MOV 0 JMP 5
