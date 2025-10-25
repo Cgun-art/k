@@ -1,3 +1,0 @@
-// print hello world in rast
-<!DOCTYPE html>
-print("Hello World!")
