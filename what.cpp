@@ -682,3 +682,150 @@ int main() {
     return EXIT_SUCCESS;
 }
 ```[43dcd9a7-70db-4a1f-b0ae-981daa162054](https://github.com/menandro/opensor/tree/959353155150cb15e37e93105d1e5c5166745f0a/opensor_viewer%2FCgObject.cpp?citationMarker=43dcd9a7-70db-4a1f-b0ae-981daa162054&citationId=1&citationId=2&citationId=3 "github.com")
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+#include <cmath>
+
+// Vertex structure
+struct Vertex {
+    float position[3];
+    float normal[3];
+};
+
+// Shader sources
+const char* vertexShaderSource = R"glsl(
+#version 330 core
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aNormal;
+
+out vec3 FragPos;
+out vec3 Normal;
+
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 projection;
+
+void main() {
+    FragPos = vec3(model * vec4(aPos, 1.0));
+    Normal = mat3(transpose(inverse(model))) * aNormal;
+    gl_Position = projection * view * vec4(FragPos, 1.0);
+}
+)glsl";
+
+const char* fragmentShaderSource = R"glsl(
+#version 330 core
+in vec3 FragPos;
+in vec3 Normal;
+
+out vec4 FragColor;
+
+uniform vec3 lightPos;
+uniform vec3 viewPos;
+uniform vec3 lightColor;
+uniform vec3 objectColor;
+
+void main() {
+    // Ambient
+    float ambientStrength = 0.3;
+    vec3 ambient = ambientStrength * lightColor;
+
+    // Diffuse
+    vec3 norm = normalize(Normal);
+    vec3 lightDir = normalize(lightPos - FragPos);
+    float diff = max(dot(norm, lightDir), 0.0);
+    vec3 diffuse = diff * lightColor;
+
+    // Specular
+    float specularStrength = 0.2;
+    vec3 viewDir = normalize(viewPos - FragPos);
+    vec3 reflectDir = reflect(-lightDir, norm);
+    float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
+    vec3 specular = specularStrength * spec * lightColor;
+
+    // Combine
+    vec3 result = (ambient + diffuse + specular) * objectColor;
+    FragColor = vec4(result, 1.0);
+}
+)glsl";
+
+// Shader compilation
+GLuint compileShader(GLenum type, const char* source) {
+    GLuint shader = glCreateShader(type);
+    glShaderSource(shader, 1, &source, nullptr);
+    glCompileShader(shader);
+    return shader;
+}
+
+GLuint createShaderProgram() {
+    GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexShaderSource);
+    GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSource);
+    GLuint shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vertexShader);
+    glAttachShader(shaderProgram, fragmentShader);
+    glLinkProgram(shaderProgram);
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+    return shaderProgram;
+}
+
+// Setup lighting and model
+void setupScene(GLuint shaderProgram) {
+    glUseProgram(shaderProgram);
+    GLint lightPosLoc = glGetUniformLocation(shaderProgram, "lightPos");
+    GLint viewPosLoc = glGetUniformLocation(shaderProgram, "viewPos");
+    GLint lightColorLoc = glGetUniformLocation(shaderProgram, "lightColor");
+    GLint objectColorLoc = glGetUniformLocation(shaderProgram, "objectColor");
+
+    glUniform3f(lightPosLoc, 1.2f, 1.0f, 2.0f);
+    glUniform3f(viewPosLoc, 0.0f, 0.0f, 3.0f);
+    glUniform3f(lightColorLoc, 1.0f, 1.0f, 1.0f);
+    glUniform3f(objectColorLoc, 0.6f, 0.6f, 0.6f);
+}
+
+// Main rendering loop
+void renderLoop(GLFWwindow* window, GLuint VAO, GLuint shaderProgram) {
+    while (!glfwWindowShouldClose(window)) {
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glUseProgram(shaderProgram);
+        glBindVertexArray(VAO);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+        glfwSwapBuffers(window);
+        glfwPollEvents();
+    }
+}
+
+// Entry point
+int main() {
+    glfwInit();
+    GLFWwindow* window = glfwCreateWindow(800, 600, "Smooth Lighting", nullptr, nullptr);
+    glfwMakeContextCurrent(window);
+    glewInit();
+    glEnable(GL_DEPTH_TEST);
+
+    GLuint shaderProgram = createShaderProgram();
+    setupScene(shaderProgram);
+
+    // Setup geometry (cube example)
+    Vertex vertices[] = {
+        // Define cube vertices with normals here...
+    };
+
+    GLuint VAO, VBO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(sizeof(float) * 3));
+    glEnableVertexAttribArray(1);
+
+    renderLoop(window, VAO, shaderProgram);
+
+    glDeleteVertexArrays(1, &VAO);
+    glDeleteBuffers(1, &VBO);
+    glfwTerminate();
+    return 0;
+}
